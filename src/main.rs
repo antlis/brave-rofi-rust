@@ -102,8 +102,8 @@ async fn get_tabs(config: &BrowserConfig) -> Result<Vec<Tab>> {
 }
 
 async fn send_cdp(
-    ws: &mut tokio_tungstenite::WebSocketStream
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+    ws: &mut tokio_tungstenite::WebSocketStream<
+        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>
     >,
     msg: serde_json::Value,
 ) -> Result<()> {

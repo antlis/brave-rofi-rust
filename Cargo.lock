@@ -36,7 +36,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "brave-rofi"
+name = "brave-rofi-rust"
 version = "0.1.0"
 dependencies = [
  "anyhow",
