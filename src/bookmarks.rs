@@ -2,17 +2,17 @@ use anyhow::Result;
 use std::fs;
 use std::process::{Command, Stdio};
 use std::io::Write;
+use crate::config::BrowserConfig;
 
-pub fn show_bookmarks(incognito: bool) -> Result<()> {
+pub fn show_bookmarks(incognito: bool, config: &BrowserConfig) -> Result<()> {
     let bookmarks_path = format!("{}/.config/surfraw/bookmarks", std::env::var("HOME")?);
     
-    // Read and process bookmarks file
     let content = fs::read_to_string(&bookmarks_path)?;
     let bookmarks: Vec<String> = content
         .lines()
-        .filter(|line| !line.is_empty())           // Remove empty lines
-        .filter(|line| !line.starts_with('#'))     // Remove comments
-        .filter(|line| !line.starts_with('/'))     // Remove lines starting with /
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.starts_with('#'))
+        .filter(|line| !line.starts_with('/'))
         .map(|s| s.to_string())
         .collect();
     
@@ -20,7 +20,6 @@ pub fn show_bookmarks(incognito: bool) -> Result<()> {
     sorted.sort();
     let menu = sorted.join("\n");
     
-    // Show rofi menu with custom colors
     let mut child = Command::new("rofi")
         .args([
             "-dmenu",
@@ -45,10 +44,6 @@ pub fn show_bookmarks(incognito: bool) -> Result<()> {
     let selection = String::from_utf8_lossy(&output.stdout).trim().to_string();
     
     if !selection.is_empty() {
-        eprintln!("Selected bookmark: {}", selection);
-        eprintln!("Incognito mode: {}", incognito);
-        
-        // Get URL from surfraw
         let surfraw_output = Command::new("surfraw")
             .arg("-print")
             .arg(&selection)
@@ -56,29 +51,25 @@ pub fn show_bookmarks(incognito: bool) -> Result<()> {
         
         if let Ok(output) = surfraw_output {
             let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            eprintln!("Surfraw resolved to: {}", url);
             
             if !url.is_empty() {
                 if incognito {
-                    // Use shell to properly detach and handle multiple calls
                     Command::new("sh")
                         .arg("-c")
-                        .arg(format!("brave-browser-beta --incognito '{}' >/dev/null 2>&1 &", url))
+                        .arg(format!("{} --incognito '{}' >/dev/null 2>&1 &", config.executable, url))
                         .spawn()?;
                 } else {
-                    // Normal mode - use surfraw
                     Command::new("surfraw")
-                        .arg("-browser=brave-browser-beta")
+                        .arg(format!("-browser={}", config.executable))
                         .arg(&selection)
                         .spawn()?;
                 }
             }
         }
         
-        // Focus brave window
         std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = Command::new("i3-msg")
-            .arg("[class=\"Brave-browser\"] focus")
+            .arg(format!("[class=\"{}\"] focus", config.window_class))
             .output();
     }
     

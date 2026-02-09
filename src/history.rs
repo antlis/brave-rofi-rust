@@ -3,24 +3,17 @@ use rusqlite::{Connection, OpenFlags};
 use std::fs;
 use std::io::Write;
 use std::process::{Command, Stdio};
+use crate::config::BrowserConfig;
 
-pub fn show_history() -> Result<()> {
-    let home = std::env::var("HOME")?;
-    let history_path = format!(
-        "{}/.config/BraveSoftware/Brave-Browser-Beta/Default/History",
-        home
-    );
-    
-    // Brave locks DB → copy it
-    let tmp_copy = "/tmp/brave_history_rofi";
-    fs::copy(&history_path, tmp_copy)?;
+pub fn show_history(config: &BrowserConfig) -> Result<()> {
+    let tmp_copy = "/tmp/browser_history_rofi";
+    fs::copy(&config.history_path, tmp_copy)?;
     
     let conn = Connection::open_with_flags(
         tmp_copy,
         OpenFlags::SQLITE_OPEN_READ_ONLY,
     )?;
     
-    // Approx same logic as: cols = terminal_width / 3
     let cols: usize = 40;
     
     let mut stmt = conn.prepare(
@@ -50,7 +43,7 @@ pub fn show_history() -> Result<()> {
         .args([
             "-dmenu",
             "-i",
-            "-p", "Brave History",
+            "-p", &format!("{} History", config.name),
             "-theme-str",
             "window { fullscreen: true; } mainbox { padding: 2%; }",
         ])
@@ -69,17 +62,15 @@ pub fn show_history() -> Result<()> {
         return Ok(());
     }
     
-    // Extract URL (same logic as your sed)
     if let Some(idx) = selection.find("http") {
         let url = &selection[idx..];
-        Command::new("brave-browser-beta")
+        Command::new(&config.executable)
             .arg(url)
             .spawn()?;
         
-        // Focus brave window
         std::thread::sleep(std::time::Duration::from_millis(500));
         let _ = Command::new("i3-msg")
-            .arg("[class=\"Brave-browser\"] focus")
+            .arg(format!("[class=\"{}\"] focus", config.window_class))
             .output();
     }
     
