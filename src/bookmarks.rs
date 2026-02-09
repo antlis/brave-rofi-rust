@@ -60,11 +60,14 @@ pub fn show_bookmarks(incognito: bool) -> Result<()> {
             
             if !url.is_empty() {
                 if incognito {
-                    // Open in incognito using CDP to reuse existing incognito window
-                    open_incognito_tab(&url)?;
+                    // Use shell to properly detach and handle multiple calls
+                    Command::new("sh")
+                        .arg("-c")
+                        .arg(format!("brave-browser-beta --incognito '{}' >/dev/null 2>&1 &", url))
+                        .spawn()?;
                 } else {
                     // Normal mode - use surfraw
-                    let _ = Command::new("surfraw")
+                    Command::new("surfraw")
                         .arg("-browser=brave-browser-beta")
                         .arg(&selection)
                         .spawn()?;
@@ -79,51 +82,5 @@ pub fn show_bookmarks(incognito: bool) -> Result<()> {
             .output();
     }
     
-    Ok(())
-}
-
-fn open_incognito_tab(url: &str) -> Result<()> {
-    // Try to open via CDP first (reuses existing incognito window)
-    let cdp_result = Command::new("curl")
-        .arg("-s")
-        .arg("http://localhost:9222/json/new")
-        .arg("-d")
-        .arg(format!("{{\"url\":\"{}\"}}", url))
-        .output();
-    
-    match cdp_result {
-        Ok(output) if output.status.success() => {
-            eprintln!("Opened in existing Brave session via CDP");
-            Ok(())
-        }
-        _ => {
-            // Fallback: Launch new incognito window if CDP fails
-            eprintln!("CDP failed, launching new incognito window");
-            Command::new("brave-browser-beta")
-                .arg("--incognito")
-                .arg(url)
-                .spawn()?;
-            Ok(())
-        }
-    }
-}
-
-pub fn show_history() -> Result<()> {
-    // Call the existing script for now
-    // TODO: Implement direct history reading from Brave's SQLite database
-    Command::new("sh")
-        .arg("-c")
-        .arg("~/bin/rofi/rofi-brave-beta-history")
-        .spawn()?;
-    Ok(())
-}
-
-pub fn search_incognito() -> Result<()> {
-    // Call the existing script for now
-    // TODO: Implement direct incognito search
-    Command::new("sh")
-        .arg("-c")
-        .arg("~/bin/rofi/rofi-brave-debug-incognito")
-        .spawn()?;
     Ok(())
 }

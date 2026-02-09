@@ -1,4 +1,6 @@
 mod bookmarks;
+mod history;
+mod search;
 
 use anyhow::{anyhow, Result};
 use futures_util::{SinkExt, StreamExt};
@@ -161,23 +163,16 @@ fn show_rofi_menu(menu: &str) -> Result<String> {
 
 async fn handle_selection(sel: String, tabs: Vec<Tab>) -> Result<()> {
     if sel == "Search (Brave)" {
-        let query = rofi_prompt("Search Brave");
-        if !query.is_empty() {
-            open_tab(&format!(
-                "https://search.brave.com/search?q={}",
-                urlencoding::encode(&query)
-            ))
-            .await?;
-            find_and_focus_brave_window(&query);
-        }
+        search::regular::run().await?;
     } else if sel == "- Bookmarks" {
         bookmarks::show_bookmarks(false)?;
     } else if sel == "- Bookmarks incognito" {
         bookmarks::show_bookmarks(true)?;
     } else if sel == "- History" {
-        bookmarks::show_history()?;
+        // TODO: focus tab after opening history item
+        history::show_history()?;
     } else if sel == "- Search in incognito" {
-        bookmarks::search_incognito()?;
+        search::incognito::run().await?;
     } else if sel == "- New Tab" {
         open_tab("brave://newtab").await?;
         focus_brave();
@@ -188,9 +183,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>) -> Result<()> {
             .map(|(i, t)| format!("{}. {} - {}", i + 1, t.title, t.url))
             .collect();
         let options = tab_options.join("\n");
-        
         let chosen = rofi_multi_select("Close tabs", &options);
-        
         for line in chosen.lines() {
             if let Some(idx_str) = line.split('.').next() {
                 if let Ok(idx) = idx_str.parse::<usize>() {
@@ -231,19 +224,6 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>) -> Result<()> {
 /* ───────────────────────────────────────────── */
 /* Helpers                                      */
 /* ───────────────────────────────────────────── */
-
-fn rofi_prompt(prompt: &str) -> String {
-    let output = Command::new("rofi")
-        .args(["-dmenu", "-p", prompt])
-        .output();
-    
-    if let Ok(out) = output {
-        String::from_utf8_lossy(&out.stdout).trim().to_string()
-    } else {
-        String::new()
-    }
-}
-
 fn rofi_confirm(prompt: &str) -> String {
     let mut child = Command::new("rofi")
         .args(["-dmenu", "-p", prompt])
