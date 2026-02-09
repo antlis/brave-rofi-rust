@@ -1,7 +1,21 @@
 [package]
-name = "brave-rofi"
+name = "brave-rofi-rust"
 version = "0.1.0"
 edition = "2021"
+authors = ["Your Name <email@example.com>"]  # Add your info
+description = "Rofi-based menu for managing Brave browser tabs, bookmarks, and history"
+license = "MIT OR Apache-2.0"  # Required for crates.io
+repository = "https://github.com/yourusername/brave-rofi-menu-rust"  # Optional
+keywords = ["brave", "rofi", "browser", "i3wm", "tabs"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "brave-rofi"
+path = "src/main.rs"
+
+[[bin]]
+name = "bbr"
+path = "src/main.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
