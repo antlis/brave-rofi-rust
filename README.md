@@ -21,12 +21,10 @@ A Rofi-based menu for managing Brave browser tabs, bookmarks, and history. Uses 
 ## Installation
 
 ```bash
-# Build the project
-cargo build --release
-
-# Or install via cargo
-cargo install --path .
+cargo install --git https://github.com/antlis/brave-rofi-rust.git
 ```
+
+This installs `brave-rofi` and `bbr` to `$HOME/.cargo/bin/`.
 
 ## Configuration
 
