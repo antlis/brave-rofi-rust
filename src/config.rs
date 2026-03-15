@@ -11,7 +11,7 @@ pub struct BrowserConfig {
 
 impl BrowserConfig {
     pub fn from_env() -> Self {
-        let browser = env::var("ROFI_BROWSER").unwrap_or_else(|_| "brave-beta".to_string());
+        let browser = env::var("BROWSER").unwrap_or_else(|_| "brave-beta".to_string());
         
         match browser.as_str() {
             "brave-beta" => Self::brave_beta(),

@@ -187,6 +187,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
         search::incognito::run(config).await?;
     } else if sel == "- New Tab" {
         open_tab("about:blank", config).await?;
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
         focus_browser(config);
     } else if sel == "- Close Tab" {
         let tab_options: Vec<String> = tabs.iter()
@@ -224,6 +225,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
         let idx = idx.saturating_sub(1);
         if let Some(tab) = tabs.get(idx) {
             activate_tab(&tab.target_id, config).await?;
+            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
             find_and_focus_browser_window(&tab.title, config);
         }
     }
