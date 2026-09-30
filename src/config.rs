@@ -88,14 +88,17 @@ impl BrowserConfig {
             .filter(|hook| !hook.trim().is_empty())
     }
 
-    /// Runs the hook with `BROWSER_CDP_PORT` set to the port of the switched-to tab,
-    /// so it can raise the right window when several profiles are open.
-    pub fn run_post_switch_hook(&self, port: u16) -> Result<()> {
+    /// Runs the hook with `BROWSER_CDP_PORT` set to the port of the switched-to tab (and
+    /// `BROWSER_TAB_TITLE` to its title, when known), so it can raise the right window
+    /// when several profiles or windows are open.
+    pub fn run_post_switch_hook(&self, port: u16, title: Option<&str>) -> Result<()> {
         if let Some(hook) = &self.post_switch_hook {
-            let status = Command::new("sh")
-                .args(["-c", hook])
-                .env("BROWSER_CDP_PORT", port.to_string())
-                .status()?;
+            let mut cmd = Command::new("sh");
+            cmd.args(["-c", hook]).env("BROWSER_CDP_PORT", port.to_string());
+            if let Some(title) = title {
+                cmd.env("BROWSER_TAB_TITLE", title);
+            }
+            let status = cmd.status()?;
             if !status.success() {
                 return Err(anyhow!("post switch hook failed: {}", hook));
             }
@@ -181,7 +184,7 @@ mod tests {
             post_switch_hook: Some(hook),
         };
 
-        config.run_post_switch_hook(9222).unwrap();
+        config.run_post_switch_hook(9222, None).unwrap();
 
         assert_eq!(fs::read_to_string(&marker).unwrap(), "hooked");
         fs::remove_file(marker).unwrap();
@@ -198,11 +201,11 @@ mod tests {
             post_switch_hook: Some("exit 7".to_string()),
         };
 
-        assert!(config.run_post_switch_hook(9222).is_err());
+        assert!(config.run_post_switch_hook(9222, None).is_err());
     }
 
     #[test]
-    fn post_switch_hook_receives_port() {
+    fn post_switch_hook_receives_port_and_title() {
         let marker = std::env::temp_dir().join(format!(
             "brave-rofi-hook-port-test-{}",
             std::process::id()
@@ -213,12 +216,15 @@ mod tests {
             history_path: String::new(),
             cdp_port: 9222,
             extra_cdp_ports: Vec::new(),
-            post_switch_hook: Some(format!("printf $BROWSER_CDP_PORT > {}", marker.display())),
+            post_switch_hook: Some(format!(
+                "printf '%s|%s' \"$BROWSER_CDP_PORT\" \"$BROWSER_TAB_TITLE\" > {}",
+                marker.display()
+            )),
         };
 
-        config.run_post_switch_hook(9223).unwrap();
+        config.run_post_switch_hook(9223, Some("Some video")).unwrap();
 
-        assert_eq!(fs::read_to_string(&marker).unwrap(), "9223");
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "9223|Some video");
         fs::remove_file(marker).unwrap();
     }
 

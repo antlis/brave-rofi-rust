@@ -158,7 +158,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
     } else if sel == "- New Tab" {
         open_tab("about:blank", config).await?;
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        config.run_post_switch_hook(config.cdp_port)?;
+        config.run_post_switch_hook(config.cdp_port, None)?;
     } else if sel == "- Close Tab" {
         let tab_options: Vec<String> = tabs.iter()
             .enumerate()
@@ -195,7 +195,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
         let idx = idx.saturating_sub(1);
         if let Some(tab) = tabs.get(idx) {
             activate_tab(tab).await?;
-            config.run_post_switch_hook(tab.port)?;
+            config.run_post_switch_hook(tab.port, Some(&tab.title))?;
         }
     }
 

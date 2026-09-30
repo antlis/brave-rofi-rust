@@ -69,7 +69,7 @@ pub fn show_history(config: &BrowserConfig) -> Result<()> {
             .spawn()?;
         
         std::thread::sleep(std::time::Duration::from_millis(500));
-        config.run_post_switch_hook(config.cdp_port)?;
+        config.run_post_switch_hook(config.cdp_port, None)?;
     }
     
     Ok(())
