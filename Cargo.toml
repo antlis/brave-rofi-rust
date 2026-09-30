@@ -3,10 +3,10 @@ name = "brave-rofi-rust"
 version = "0.1.0"
 edition = "2021"
 authors = ["Your Name <email@example.com>"]  # Add your info
-description = "Rofi-based menu for managing Brave browser tabs, bookmarks, and history"
+description = "Rofi-based menu for managing Chromium-based browser tabs, bookmarks, and history"
 license = "MIT OR Apache-2.0"  # Required for crates.io
 repository = "https://github.com/yourusername/brave-rofi-menu-rust"  # Optional
-keywords = ["brave", "rofi", "browser", "i3wm", "tabs"]
+keywords = ["brave", "chromium", "rofi", "browser", "tabs"]
 categories = ["command-line-utilities"]
 
 [[bin]]
@@ -26,3 +26,4 @@ anyhow = "1"
 url = "2"
 urlencoding = "2.1.2"
 rusqlite = { version = "0.31", features = ["bundled"] }
+dirs = "6.0.0"

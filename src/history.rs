@@ -69,9 +69,7 @@ pub fn show_history(config: &BrowserConfig) -> Result<()> {
             .spawn()?;
         
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let _ = Command::new("i3-msg")
-            .arg(format!("[class=\"{}\"] focus", config.window_class))
-            .output();
+        config.run_post_switch_hook()?;
     }
     
     Ok(())

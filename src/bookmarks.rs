@@ -5,7 +5,9 @@ use std::io::Write;
 use crate::config::BrowserConfig;
 
 pub fn show_bookmarks(incognito: bool, config: &BrowserConfig) -> Result<()> {
-    let bookmarks_path = format!("{}/.config/surfraw/bookmarks", std::env::var("HOME")?);
+    let bookmarks_path = dirs::home_dir()
+        .ok_or_else(|| anyhow::anyhow!("Could not find home directory"))?
+        .join(".config/surfraw/bookmarks");
     
     let content = fs::read_to_string(&bookmarks_path)?;
     let bookmarks: Vec<String> = content
@@ -13,6 +15,7 @@ pub fn show_bookmarks(incognito: bool, config: &BrowserConfig) -> Result<()> {
         .filter(|line| !line.is_empty())
         .filter(|line| !line.starts_with('#'))
         .filter(|line| !line.starts_with('/'))
+        .filter(|line| line.contains(' '))
         .map(|s| s.to_string())
         .collect();
     
@@ -26,10 +29,6 @@ pub fn show_bookmarks(incognito: bool, config: &BrowserConfig) -> Result<()> {
             "-i",
             "-p", "bookmarks:",
             "-mesg", ">>> Edit to add new bookmarks at ~/.config/surfraw/bookmarks",
-            "-color-window", "#000000, #000000, #000000",
-            "-color-normal", "#000000, #b3e774, #000000, #b3e774, #000000",
-            "-color-active", "#000000, #b3e774, #000000, #b3e774, #000000",
-            "-color-urgent", "#000000, #b3e774, #000000, #b3e774, #000000",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -44,33 +43,37 @@ pub fn show_bookmarks(incognito: bool, config: &BrowserConfig) -> Result<()> {
     let selection = String::from_utf8_lossy(&output.stdout).trim().to_string();
     
     if !selection.is_empty() {
-        let surfraw_output = Command::new("surfraw")
-            .arg("-print")
-            .arg(&selection)
-            .output();
+        let url = selection
+            .split_whitespace()
+            .nth(1)
+            .unwrap_or("")
+            .split(" ;;")
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_string();
         
-        if let Ok(output) = surfraw_output {
-            let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            
-            if !url.is_empty() {
-                if incognito {
-                    Command::new("sh")
-                        .arg("-c")
-                        .arg(format!("{} --incognito '{}' >/dev/null 2>&1 &", config.executable, url))
-                        .spawn()?;
-                } else {
-                    Command::new("surfraw")
-                        .arg(format!("-browser={}", config.executable))
-                        .arg(&selection)
-                        .spawn()?;
-                }
+        if !url.is_empty() {
+            let full_url = if url.starts_with("http://") || url.starts_with("https://") {
+                url
+            } else {
+                format!("https://{}", url)
+            };
+
+            if incognito {
+                Command::new(&config.executable)
+                    .arg("--incognito")
+                    .arg(&full_url)
+                    .spawn()?;
+            } else {
+                Command::new(&config.executable)
+                    .arg(&full_url)
+                    .spawn()?;
             }
         }
         
         std::thread::sleep(std::time::Duration::from_millis(500));
-        let _ = Command::new("i3-msg")
-            .arg(format!("[class=\"{}\"] focus", config.window_class))
-            .output();
+        config.run_post_switch_hook()?;
     }
     
     Ok(())

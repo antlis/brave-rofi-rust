@@ -1,16 +1,17 @@
 mod bookmarks;
+mod config;
 mod history;
 mod search;
-mod config;
 
 use anyhow::{anyhow, Result};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::SinkExt;
 use serde_json::json;
-use std::process::{Command, Stdio};
 use std::io::Write;
+use std::process::{Command, Stdio};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::Message;
 use url::Url;
+
 use config::BrowserConfig;
 
 #[derive(Debug, Clone)]
@@ -40,75 +41,26 @@ async fn main() -> Result<()> {
 /* ───────────────────────────────────────────── */
 
 async fn get_tabs(config: &BrowserConfig) -> Result<Vec<Tab>> {
-    let cdp_url = format!("http://localhost:{}/json/version", config.cdp_port);
-    let version: serde_json::Value = reqwest_blocking(&cdp_url)?;
-    let ws_url = version["webSocketDebuggerUrl"]
-        .as_str()
-        .ok_or_else(|| anyhow!("No debugger URL"))?;
-
-    let (mut ws, _) = connect_async(Url::parse(ws_url)?).await?;
-
-    // Enable discovery (REQUIRED FOR BRAVE)
-    send_cdp(
-        &mut ws,
-        json!({
-            "id": 1,
-            "method": "Target.setDiscoverTargets",
-            "params": { "discover": true }
-        }),
-    )
-    .await?;
-
-    send_cdp(
-        &mut ws,
-        json!({
-            "id": 2,
-            "method": "Target.setAutoAttach",
-            "params": { "autoAttach": true, "waitForDebuggerOnStart": false, "flatten": true }
-        }),
-    )
-    .await?;
-
-    send_cdp(
-        &mut ws,
-        json!({
-            "id": 3,
-            "method": "Target.getTargets"
-        }),
-    )
-    .await?;
-
-    while let Some(msg) = ws.next().await {
-        let msg = msg?;
-        if let Ok(txt) = msg.to_text() {
-            let v: serde_json::Value = serde_json::from_str(txt)?;
-            if let Some(targets) = v["result"]["targetInfos"].as_array() {
-                let tabs = targets
-                    .iter()
-                    .filter(|t| t["type"] == "page"
-                        && !t["url"].as_str().unwrap_or("").starts_with("chrome-extension://"))
-                    .map(|t| Tab {
-                        target_id: t["targetId"].as_str().unwrap().to_string(),
-                        title: t["title"].as_str().unwrap_or("Untitled").to_string(),
-                        url: t["url"].as_str().unwrap_or("").to_string(),
-                    })
-                    .collect();
-                return Ok(tabs);
-            }
-        }
-    }
-
-    Err(anyhow!("Failed to fetch tabs"))
-}
-
-async fn send_cdp(
-    ws: &mut tokio_tungstenite::WebSocketStream<
-        tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>
-    >,
-    msg: serde_json::Value,
-) -> Result<()> {
-    ws.send(Message::Text(msg.to_string())).await?;
-    Ok(())
+    let cdp_url = format!("http://localhost:{}/json", config.cdp_port);
+    let targets: serde_json::Value = reqwest_blocking(&cdp_url)?;
+    let tabs = targets
+        .as_array()
+        .ok_or_else(|| anyhow!("Expected array from /json"))?
+        .iter()
+        .filter(|t| {
+            t["type"] == "page"
+                && !t["url"]
+                    .as_str()
+                    .unwrap_or("")
+                    .starts_with("chrome-extension://")
+        })
+        .map(|t| Tab {
+            target_id: t["id"].as_str().unwrap_or("").to_string(),
+            title: t["title"].as_str().unwrap_or("Untitled").to_string(),
+            url: t["url"].as_str().unwrap_or("").to_string(),
+        })
+        .collect();
+    Ok(tabs)
 }
 
 /* ───────────────────────────────────────────── */
@@ -144,8 +96,10 @@ fn show_rofi_menu(menu: &str, config: &BrowserConfig) -> Result<String> {
         .args([
             "-dmenu",
             "-i",
-            "-p", &format!("{} Tabs", config.name),
-            "-theme-str", "window { fullscreen: true; } mainbox { padding: 2%; }"
+            "-p",
+            &format!("{} Tabs", config.name),
+            "-theme-str",
+            "window { fullscreen: true; } mainbox { padding: 2%; }",
         ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -172,23 +126,26 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
         tokio::task::spawn_blocking({
             let cfg = config.clone();
             move || bookmarks::show_bookmarks(false, &cfg)
-        });
+        })
+        .await??;
     } else if sel == "- Bookmarks incognito" {
         tokio::task::spawn_blocking({
             let cfg = config.clone();
             move || bookmarks::show_bookmarks(true, &cfg)
-        });
+        })
+        .await??;
     } else if sel == "- History" {
         tokio::task::spawn_blocking({
             let cfg = config.clone();
             move || history::show_history(&cfg)
-        });
+        })
+        .await??;
     } else if sel == "- Search in incognito" {
         search::incognito::run(config).await?;
     } else if sel == "- New Tab" {
         open_tab("about:blank", config).await?;
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        focus_browser(config);
+        config.run_post_switch_hook()?;
     } else if sel == "- Close Tab" {
         let tab_options: Vec<String> = tabs.iter()
             .enumerate()
@@ -225,8 +182,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
         let idx = idx.saturating_sub(1);
         if let Some(tab) = tabs.get(idx) {
             activate_tab(&tab.target_id, config).await?;
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            find_and_focus_browser_window(&tab.title, config);
+            config.run_post_switch_hook()?;
         }
     }
 
@@ -236,6 +192,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
 /* ───────────────────────────────────────────── */
 /* Helpers                                      */
 /* ───────────────────────────────────────────── */
+
 fn rofi_confirm(prompt: &str) -> String {
     let mut child = Command::new("rofi")
         .args(["-dmenu", "-p", prompt])
@@ -270,70 +227,16 @@ fn rofi_multi_select(prompt: &str, options: &str) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_string()
 }
 
-fn focus_browser(config: &BrowserConfig) {
-    let _ = Command::new("i3-msg")
-        .arg(format!("[class=\"{}\"] focus", config.window_class))
-        .output();
-}
-
-fn find_and_focus_browser_window(tab_title: &str, config: &BrowserConfig) {
-    if let Ok(output) = Command::new("i3-msg")
-        .args(["-t", "get_tree"])
-        .output()
-    {
-        if let Ok(tree) = serde_json::from_slice::<serde_json::Value>(&output.stdout) {
-            let windows = find_browser_windows(&tree, config);
-            
-            if windows.is_empty() {
-                return;
-            }
-            
-            let matching = windows.iter()
-                .find(|(_, name)| name.contains(tab_title));
-            
-            let window_id = matching
-                .or_else(|| windows.first())
-                .map(|(id, _)| id);
-            
-            if let Some(id) = window_id {
-                let _ = Command::new("i3-msg")
-                    .arg(format!("[id=\"{}\"] focus", id))
-                    .output();
-            }
-        }
-    }
-}
-
-fn find_browser_windows(node: &serde_json::Value, config: &BrowserConfig) -> Vec<(u64, String)> {
-    let mut windows = Vec::new();
-    
-    if let Some(window) = node["window"].as_u64() {
-        if let Some(name) = node["name"].as_str() {
-            if name.contains(&config.name) || name.contains(&config.window_class) {
-                windows.push((window, name.to_string()));
-            }
-        }
-    }
-    
-    if let Some(nodes) = node["nodes"].as_array() {
-        for child in nodes {
-            windows.extend(find_browser_windows(child, config));
-        }
-    }
-    
-    windows
-}
-
 async fn open_tab(url: &str, config: &BrowserConfig) -> Result<()> {
     cdp_simple("Target.createTarget", json!({ "url": url }), config).await
 }
 
-async fn activate_tab(id: &str, config: &BrowserConfig) -> Result<()> {
-    cdp_simple("Target.activateTarget", json!({ "targetId": id }), config).await
-}
-
 async fn close_tab(id: &str, config: &BrowserConfig) -> Result<()> {
     cdp_simple("Target.closeTarget", json!({ "targetId": id }), config).await
+}
+
+async fn activate_tab(id: &str, config: &BrowserConfig) -> Result<()> {
+    cdp_simple("Target.activateTarget", json!({ "targetId": id }), config).await
 }
 
 async fn cdp_simple(method: &str, params: serde_json::Value, config: &BrowserConfig) -> Result<()> {
@@ -343,7 +246,8 @@ async fn cdp_simple(method: &str, params: serde_json::Value, config: &BrowserCon
         .as_str()
         .ok_or_else(|| anyhow!("No debugger URL"))?;
     let (mut ws, _) = connect_async(Url::parse(ws_url)?).await?;
-    send_cdp(&mut ws, json!({ "id": 1, "method": method, "params": params })).await?;
+    let msg = json!({ "id": 1, "method": method, "params": params });
+    ws.send(Message::Text(msg.to_string())).await?;
     Ok(())
 }
 
