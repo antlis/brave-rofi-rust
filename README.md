@@ -93,6 +93,18 @@ Then bind it in your WM. Example for i3:
 bindsym $mod+b exec --no-startup-id brave-rofi
 ```
 
+### Multiple profiles
+
+To also list tabs from other browser processes (separate profiles, e.g. web apps launched with
+their own `--user-data-dir` and `--remote-debugging-port`), set `$BROWSER_EXTRA_CDP_PORTS` to
+comma-separated ports or ranges. Ports nothing listens on are skipped. New tabs and searches
+still open on the primary port (9222). The hook gets `$BROWSER_CDP_PORT` — the port of the
+switched-to tab — so it can raise the right window.
+
+```sh
+export BROWSER_EXTRA_CDP_PORTS='9223-9239'
+```
+
 ### Bookmarks file
 
 Bookmarks are read from `~/.config/surfraw/bookmarks`. Each line is `name url`, e.g.:

@@ -73,7 +73,7 @@ pub fn show_bookmarks(incognito: bool, config: &BrowserConfig) -> Result<()> {
         }
         
         std::thread::sleep(std::time::Duration::from_millis(500));
-        config.run_post_switch_hook()?;
+        config.run_post_switch_hook(config.cdp_port)?;
     }
     
     Ok(())

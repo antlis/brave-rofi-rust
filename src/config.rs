@@ -8,6 +8,8 @@ pub struct BrowserConfig {
     pub executable: String,
     pub history_path: String,
     pub cdp_port: u16,
+    /// Extra CDP ports (other profiles, e.g. web apps) whose tabs are listed too.
+    pub extra_cdp_ports: Vec<u16>,
     pub post_switch_hook: Option<String>,
 }
 
@@ -36,6 +38,7 @@ impl BrowserConfig {
                 home
             ),
             cdp_port: 9222,
+            extra_cdp_ports: Self::extra_cdp_ports(),
             post_switch_hook: Self::post_switch_hook(),
         }
     }
@@ -50,6 +53,7 @@ impl BrowserConfig {
                 home
             ),
             cdp_port: 9222,
+            extra_cdp_ports: Self::extra_cdp_ports(),
             post_switch_hook: Self::post_switch_hook(),
         }
     }
@@ -61,8 +65,21 @@ impl BrowserConfig {
             executable,
             history_path: format!("{}/.config/chromium/Default/History", home),
             cdp_port: 9222,
+            extra_cdp_ports: Self::extra_cdp_ports(),
             post_switch_hook: Self::post_switch_hook(),
         }
+    }
+
+    /// `BROWSER_EXTRA_CDP_PORTS`: comma-separated ports or ranges, e.g. "9223-9239,9300".
+    fn extra_cdp_ports() -> Vec<u16> {
+        parse_ports(&env::var("BROWSER_EXTRA_CDP_PORTS").unwrap_or_default())
+    }
+
+    /// Primary port first, then the extras.
+    pub fn cdp_ports(&self) -> Vec<u16> {
+        let mut ports = vec![self.cdp_port];
+        ports.extend(self.extra_cdp_ports.iter().filter(|p| **p != self.cdp_port));
+        ports
     }
 
     fn post_switch_hook() -> Option<String> {
@@ -71,9 +88,14 @@ impl BrowserConfig {
             .filter(|hook| !hook.trim().is_empty())
     }
 
-    pub fn run_post_switch_hook(&self) -> Result<()> {
+    /// Runs the hook with `BROWSER_CDP_PORT` set to the port of the switched-to tab,
+    /// so it can raise the right window when several profiles are open.
+    pub fn run_post_switch_hook(&self, port: u16) -> Result<()> {
         if let Some(hook) = &self.post_switch_hook {
-            let status = Command::new("sh").args(["-c", hook]).status()?;
+            let status = Command::new("sh")
+                .args(["-c", hook])
+                .env("BROWSER_CDP_PORT", port.to_string())
+                .status()?;
             if !status.success() {
                 return Err(anyhow!("post switch hook failed: {}", hook));
             }
@@ -83,9 +105,23 @@ impl BrowserConfig {
     }
 }
 
+fn parse_ports(spec: &str) -> Vec<u16> {
+    spec.split(',')
+        .map(str::trim)
+        .filter(|part| !part.is_empty())
+        .flat_map(|part| match part.split_once('-') {
+            Some((from, to)) => match (from.trim().parse(), to.trim().parse()) {
+                (Ok(from), Ok(to)) => (from..=to).collect(),
+                _ => Vec::new(),
+            },
+            None => part.parse().into_iter().collect(),
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
-    use super::BrowserConfig;
+    use super::{parse_ports, BrowserConfig};
     use std::fs;
     use std::sync::{Mutex, OnceLock};
 
@@ -141,10 +177,11 @@ mod tests {
             executable: "chromium".to_string(),
             history_path: String::new(),
             cdp_port: 9222,
+            extra_cdp_ports: Vec::new(),
             post_switch_hook: Some(hook),
         };
 
-        config.run_post_switch_hook().unwrap();
+        config.run_post_switch_hook(9222).unwrap();
 
         assert_eq!(fs::read_to_string(&marker).unwrap(), "hooked");
         fs::remove_file(marker).unwrap();
@@ -157,9 +194,51 @@ mod tests {
             executable: "chromium".to_string(),
             history_path: String::new(),
             cdp_port: 9222,
+            extra_cdp_ports: Vec::new(),
             post_switch_hook: Some("exit 7".to_string()),
         };
 
-        assert!(config.run_post_switch_hook().is_err());
+        assert!(config.run_post_switch_hook(9222).is_err());
+    }
+
+    #[test]
+    fn post_switch_hook_receives_port() {
+        let marker = std::env::temp_dir().join(format!(
+            "brave-rofi-hook-port-test-{}",
+            std::process::id()
+        ));
+        let config = BrowserConfig {
+            name: "Test".to_string(),
+            executable: "chromium".to_string(),
+            history_path: String::new(),
+            cdp_port: 9222,
+            extra_cdp_ports: Vec::new(),
+            post_switch_hook: Some(format!("printf $BROWSER_CDP_PORT > {}", marker.display())),
+        };
+
+        config.run_post_switch_hook(9223).unwrap();
+
+        assert_eq!(fs::read_to_string(&marker).unwrap(), "9223");
+        fs::remove_file(marker).unwrap();
+    }
+
+    #[test]
+    fn parses_ports_and_ranges() {
+        assert_eq!(parse_ports(""), Vec::<u16>::new());
+        assert_eq!(parse_ports("9223-9225, 9300,junk"), vec![9223, 9224, 9225, 9300]);
+    }
+
+    #[test]
+    fn cdp_ports_puts_primary_first_without_duplicates() {
+        let config = BrowserConfig {
+            name: "Test".to_string(),
+            executable: "chromium".to_string(),
+            history_path: String::new(),
+            cdp_port: 9222,
+            extra_cdp_ports: vec![9222, 9223],
+            post_switch_hook: None,
+        };
+
+        assert_eq!(config.cdp_ports(), vec![9222, 9223]);
     }
 }

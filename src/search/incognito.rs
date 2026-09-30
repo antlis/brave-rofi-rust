@@ -18,7 +18,7 @@ pub async fn run(config: &BrowserConfig) -> Result<()> {
         .arg(&search_url)
         .spawn()?;
 
-    config.run_post_switch_hook()?;
+    config.run_post_switch_hook(config.cdp_port)?;
     
     Ok(())
 }

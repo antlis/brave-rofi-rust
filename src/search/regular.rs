@@ -11,6 +11,6 @@ pub async fn run(config: &BrowserConfig) -> Result<()> {
     }
     let url = format!("https://search.brave.com/search?q={}", encode(&query));
     open_tab(&url, config).await?;
-    config.run_post_switch_hook()?;
+    config.run_post_switch_hook(config.cdp_port)?;
     Ok(())
 }

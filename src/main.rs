@@ -19,6 +19,7 @@ struct Tab {
     target_id: String,
     title: String,
     url: String,
+    port: u16,
 }
 
 #[tokio::main]
@@ -41,7 +42,18 @@ async fn main() -> Result<()> {
 /* ───────────────────────────────────────────── */
 
 async fn get_tabs(config: &BrowserConfig) -> Result<Vec<Tab>> {
-    let cdp_url = format!("http://localhost:{}/json", config.cdp_port);
+    let mut tabs = get_tabs_on_port(config.cdp_port)?;
+    // Other profiles (e.g. web apps) are optional — skip ports nothing listens on.
+    for port in config.cdp_ports().into_iter().skip(1) {
+        if let Ok(more) = get_tabs_on_port(port) {
+            tabs.extend(more);
+        }
+    }
+    Ok(tabs)
+}
+
+fn get_tabs_on_port(port: u16) -> Result<Vec<Tab>> {
+    let cdp_url = format!("http://localhost:{}/json", port);
     let targets: serde_json::Value = reqwest_blocking(&cdp_url)?;
     let tabs = targets
         .as_array()
@@ -58,6 +70,7 @@ async fn get_tabs(config: &BrowserConfig) -> Result<Vec<Tab>> {
             target_id: t["id"].as_str().unwrap_or("").to_string(),
             title: t["title"].as_str().unwrap_or("Untitled").to_string(),
             url: t["url"].as_str().unwrap_or("").to_string(),
+            port,
         })
         .collect();
     Ok(tabs)
@@ -145,7 +158,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
     } else if sel == "- New Tab" {
         open_tab("about:blank", config).await?;
         tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        config.run_post_switch_hook()?;
+        config.run_post_switch_hook(config.cdp_port)?;
     } else if sel == "- Close Tab" {
         let tab_options: Vec<String> = tabs.iter()
             .enumerate()
@@ -158,7 +171,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
                 if let Ok(idx) = idx_str.parse::<usize>() {
                     let idx = idx.saturating_sub(1);
                     if let Some(tab) = tabs.get(idx) {
-                        let _ = close_tab(&tab.target_id, config).await;
+                        let _ = close_tab(tab).await;
                     }
                 }
             }
@@ -168,7 +181,7 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
         if confirm == "YES" {
             let all_tabs = get_tabs(config).await?;
             for t in all_tabs {
-                let _ = close_tab(&t.target_id, config).await;
+                let _ = close_tab(&t).await;
             }
         }
     } else if sel == "- Exit" {
@@ -181,8 +194,8 @@ async fn handle_selection(sel: String, tabs: Vec<Tab>, config: &BrowserConfig) -
             .parse::<usize>()?;
         let idx = idx.saturating_sub(1);
         if let Some(tab) = tabs.get(idx) {
-            activate_tab(&tab.target_id, config).await?;
-            config.run_post_switch_hook()?;
+            activate_tab(tab).await?;
+            config.run_post_switch_hook(tab.port)?;
         }
     }
 
@@ -228,19 +241,19 @@ fn rofi_multi_select(prompt: &str, options: &str) -> String {
 }
 
 async fn open_tab(url: &str, config: &BrowserConfig) -> Result<()> {
-    cdp_simple("Target.createTarget", json!({ "url": url }), config).await
+    cdp_simple("Target.createTarget", json!({ "url": url }), config.cdp_port).await
 }
 
-async fn close_tab(id: &str, config: &BrowserConfig) -> Result<()> {
-    cdp_simple("Target.closeTarget", json!({ "targetId": id }), config).await
+async fn close_tab(tab: &Tab) -> Result<()> {
+    cdp_simple("Target.closeTarget", json!({ "targetId": tab.target_id }), tab.port).await
 }
 
-async fn activate_tab(id: &str, config: &BrowserConfig) -> Result<()> {
-    cdp_simple("Target.activateTarget", json!({ "targetId": id }), config).await
+async fn activate_tab(tab: &Tab) -> Result<()> {
+    cdp_simple("Target.activateTarget", json!({ "targetId": tab.target_id }), tab.port).await
 }
 
-async fn cdp_simple(method: &str, params: serde_json::Value, config: &BrowserConfig) -> Result<()> {
-    let cdp_url = format!("http://localhost:{}/json/version", config.cdp_port);
+async fn cdp_simple(method: &str, params: serde_json::Value, port: u16) -> Result<()> {
+    let cdp_url = format!("http://localhost:{}/json/version", port);
     let version: serde_json::Value = reqwest_blocking(&cdp_url)?;
     let ws_url = version["webSocketDebuggerUrl"]
         .as_str()
